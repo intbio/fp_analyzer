@@ -8,10 +8,6 @@ instrument corrections (G-factor, blank subtraction, Q-factor), fits direct
 binding models, computes a Z′-factor for assay quality, and exports
 publication-ready tables and figures.
 
-> **Replace `USER/REPO`** in the Binder badge URL above with your GitHub
-> handle and repository name once you push. The badge will then launch the
-> notebook directly in a Binder session.
-
 ## Quick start
 
 **Option A — try it online (no install).** Click the Binder badge above. The
@@ -22,7 +18,7 @@ already in the `examples/` folder of the Binder session.
 **Option B — run locally.**
 
 ```bash
-git clone https://github.com/USER/REPO.git
+git clone https://github.com/intbio/fp_analyzer
 cd REPO
 pip install -r requirements.txt
 jupyter notebook notebooks/fp_analyzer.ipynb
@@ -125,4 +121,4 @@ Key references:
 
 ## License
 
-[Specify license, e.g. MIT.]
+
