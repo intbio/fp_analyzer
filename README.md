@@ -1,6 +1,6 @@
 # FP Analyzer
 
-[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/intbio/fp_analyzer/HEAD?urlpath=%2Fdoc%2Ftree%2Fnotebooks%2Ffp_analyzer.ipynb)
+[![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/USER/REPO/HEAD?urlpath=%2Fdoc%2Ftree%2Fnotebooks%2Ffp_analyzer.ipynb)
 
 An interactive Jupyter notebook for analyzing **fluorescence polarization (FP)
 saturation binding** experiments. Reads raw plate-reader output, applies
