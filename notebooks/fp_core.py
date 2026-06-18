@@ -121,8 +121,8 @@ _MODEL_PARAMS = {
 # FPAnalyzer
 # ══════════════════════════════════════════════════════════════════
 class FPAnalyzer:
-    def __init__(self, layout_file, data_file, fixed_concentration,
-                 A_ref=0.035, G=None, G_threshold=0.3, Q_threshold=0.3, cycle='last'):
+    def __init__(self, layout_file, data_file, fixed_concentration=0.5,
+                 A_ref=0.035, G=None, G_threshold=0.3, Q_threshold=0.3, cycle='mean'):
         self.layout_path         = Path(layout_file)
         self.data_path           = Path(data_file)
         self.fixed_concentration = fixed_concentration
@@ -130,9 +130,10 @@ class FPAnalyzer:
         self._G_override         = G
         self.G_threshold         = G_threshold
         self.Q_threshold         = Q_threshold
-        self.cycle               = cycle
+        self.cycle               = cycle   # always 'mean': average technical cycles per well
         self.G = self.G_se = None
         self.df_merged = self.df_saturation = self.df_scatchard = None
+        self.df_fitpoints = None
         self.qc_reports: dict = {}
         self._fit_results: dict = {}
         self._fit_curves:  dict = {}
@@ -360,21 +361,43 @@ class FPAnalyzer:
                 blank_prl=b_prl, blank_prp=b_prp,
                 n_titration=n_tit, n_replicates=n_reps, warnings=warns)
 
-    # ── Saturation table (Scatchard now built post-fit, see get_scatchard) ──
+    # ── Fitting data ───────────────────────────────────────────────
     def _prepare_fitting_data(self):
+        """
+        Build two tables:
+
+        df_fitpoints : ONE row per replicate well (technical cycles already
+                       averaged upstream, cycle='mean'). These independent
+                       per-well points are what the fit is run on, so the
+                       reported parameter standard errors reflect the true
+                       number of independent measurements.
+
+        df_saturation: ONE row per concentration (mean +/- SEM across the
+                       replicate wells), used only for plotting points with
+                       error bars.
+        """
         df  = self.df_merged
         tit = df[(df['sample_type']=='titration') & df['concentration'].notna()].copy()
-        err_agg  = lambda x: ((x**2).sum()**0.5)/len(x)
-        mean_agg = lambda x: x.mean()
-        by_rep = (tit.groupby(['condition','concentration','replicate'], as_index=False)
-                     .agg(r_mean=('r','mean'), r_sem=('r','sem'), r_std=('r','std')))
-        sat = (by_rep.groupby(['condition','concentration'], as_index=False)
-                     .agg(r=('r_mean',mean_agg), sem=('r_sem',err_agg),
-                          std=('r_std',err_agg), n=('r_mean','count')))
+
+        # Per-well points: average over cycles within each well.
+        # When cycle='mean' each well is already a single row, so this is a no-op.
+        fitpoints = (tit.groupby(['condition','concentration','replicate','well'],
+                                 as_index=False)
+                        .agg(r=('r','mean')))
+        fitpoints['r_mA'] = fitpoints['r'] * 1000
+        self.df_fitpoints = fitpoints
+
+        # Per-concentration summary for plotting (mean and SEM across wells)
+        sat = (fitpoints.groupby(['condition','concentration'], as_index=False)
+                        .agg(r=('r','mean'), sem=('r','sem'),
+                             std=('r','std'), n=('r','count')))
+        sat['sem'] = sat['sem'].fillna(0.0)
+        sat['std'] = sat['std'].fillna(0.0)
         sat['r_mA']   = sat['r']   * 1000
         sat['sem_mA'] = sat['sem'] * 1000
         self.df_saturation = sat
-        # df_scatchard is no longer precomputed; it is built post-fit on demand.
+
+        # df_scatchard is built post-fit on demand (see get_scatchard).
         self.df_scatchard = None
 
     def compute_z_prime(self, condition):
@@ -414,11 +437,12 @@ class FPAnalyzer:
     # ── Fit (FIXED: A_free/A_bound now seeded for ALL models) ──────
     def fit(self, condition, model='fp_quadratic', params=None,
             bounds=None, fixed=None, method='leastsq'):
-        if self.df_saturation is None or self.df_saturation.empty:
-            raise FitError("No saturation data.")
-        cond_data = self.df_saturation[self.df_saturation['condition'] == condition]
+        if self.df_fitpoints is None or self.df_fitpoints.empty:
+            raise FitError("No fitting data.")
+        cond_data = self.df_fitpoints[self.df_fitpoints['condition'] == condition]
         if cond_data.empty:
             raise ValueError(f"Condition '{condition}' not found.")
+        # Fit runs on per-well points (cycles averaged) -> honest stderr
         x = np.asarray(cond_data['concentration'].values, dtype=np.float64)
         y = np.asarray(cond_data['r'].values,             dtype=np.float64)
         if model not in _BUILTIN_MODELS:
@@ -496,10 +520,27 @@ class FPAnalyzer:
         if not result.success:
             warnings.warn(f"[{condition}] Fit did not converge: {result.message}", UserWarning)
         self._fit_results[condition] = result
+
+        # Fitted anisotropy bounds for fraction-bound conversion
+        bv = result.best_values
+        A_free_fit  = bv.get('A_free',  A_free_def)
+        A_bound_fit = bv.get('A_bound', A_bound_def)
+        span = (A_bound_fit - A_free_fit) if abs(A_bound_fit - A_free_fit) > 1e-12 else np.nan
+
         x_fine = np.linspace(max(x.min(), 1e-9), x.max(), 400)
         y_fine = model_func(x_fine, **result.best_values)
+        fb_fine = (y_fine - A_free_fit) / span
         self._fit_curves[condition] = pd.DataFrame(
-            {'condition':condition,'concentration':x_fine,'r':y_fine,'r_mA':y_fine*1000})
+            {'condition':condition,'concentration':x_fine,
+             'r':y_fine,'r_mA':y_fine*1000,
+             'fraction_bound':fb_fine})
+
+        # Annotate the per-concentration saturation table with fraction bound
+        mask = self.df_saturation['condition'] == condition
+        self.df_saturation.loc[mask, 'fraction_bound'] = \
+            (self.df_saturation.loc[mask, 'r'] - A_free_fit) / span
+        self.df_saturation.loc[mask, 'fraction_bound_sem'] = \
+            self.df_saturation.loc[mask, 'sem'] / span
 
     # ── Post-fit Scatchard (FIXED: uses fitted A_bound and B/F) ────
     def get_scatchard(self, condition):
@@ -605,13 +646,18 @@ def _condition_colors():
     return {c: COLORS[i % 10] for i, c in enumerate(conds)}
 
 
+# Default example files shipped alongside the notebook (used on Binder).
+DEFAULT_LAYOUT = 'layout_dCas9.csv'
+DEFAULT_DATA   = 'data_dCas9.csv'
+
+
 # ── Step 2: Load ───────────────────────────────────────────────────
 def show_load_panel():
     upload_layout = widgets.FileUpload(accept='.csv,.xlsx', multiple=False,
                                        description='Layout file')
     upload_data   = widgets.FileUpload(accept='.csv,.xlsx,.txt', multiple=False,
                                        description='Data file')
-    w_Dl    = widgets.FloatText(value=10.0, description='[L*] nM:',
+    w_Dl    = widgets.FloatText(value=0.5, description='[L*] nM:',
                                 style={'description_width':'80px'},
                                 layout=widgets.Layout(width='200px'))
     w_Aref  = widgets.FloatText(value=0.035, description='A_ref:',
@@ -622,16 +668,17 @@ def show_load_panel():
                                 layout=widgets.Layout(width='200px'))
     w_G_use = widgets.Checkbox(value=False, description='Use G override',
                                layout=widgets.Layout(width='180px'))
-    w_cycle = widgets.Dropdown(
-        options=[('Last cycle','last'),('Mean of all','mean'),
-                 ('Cycle 1',1),('Cycle 2',2),('Cycle 3',3),
-                 ('Cycle 5',5),('Cycle 10',10)],
-        value='last', description='Cycle:',
-        style={'description_width':'80px'},
-        layout=widgets.Layout(width='220px'))
     btn_load = _styled_btn('Load & process', 'success', 'upload')
     status   = widgets.Output()
     preview  = widgets.Output()
+
+    has_defaults = Path(DEFAULT_LAYOUT).exists() and Path(DEFAULT_DATA).exists()
+    default_note = (f'<span style="color:gray;font-size:12px">'
+                    f'Default example files ({DEFAULT_LAYOUT}, {DEFAULT_DATA}) are '
+                    f'loaded automatically if you do not attach your own.</span>'
+                    if has_defaults else
+                    '<span style="color:#b36b00;font-size:12px">'
+                    'Default example files not found — attach your own files.</span>')
 
     def _save_upload(upload):
         if not upload.value: return None
@@ -648,44 +695,27 @@ def show_load_panel():
         with status: clear_output(wait=True); display(_label('Loading...'))
         with preview: clear_output()
         try:
-            lp = _save_upload(upload_layout)
-            dp = _save_upload(upload_data)
-            if lp is None: raise ValueError('Attach a layout file.')
-            if dp is None: raise ValueError('Attach a data file.')
+            # Use uploaded files if present, otherwise fall back to defaults
+            lp = _save_upload(upload_layout) or (DEFAULT_LAYOUT if has_defaults else None)
+            dp = _save_upload(upload_data)   or (DEFAULT_DATA   if has_defaults else None)
+            if lp is None: raise ValueError('Attach a layout file (no default available).')
+            if dp is None: raise ValueError('Attach a data file (no default available).')
+            using_default = (not upload_layout.value) and (not upload_data.value) and has_defaults
             G_val = w_G.value if w_G_use.value else None
             _ana = FPAnalyzer(layout_file=lp, data_file=dp,
                               fixed_concentration=w_Dl.value,
-                              A_ref=w_Aref.value, G=G_val,
-                              cycle=w_cycle.value)
+                              A_ref=w_Aref.value, G=G_val)   # cycle='mean' (fixed)
             n_c = _ana.df_saturation['condition'].nunique()
             n_w = len(_ana.df_merged)
+            src = ' (example data)' if using_default else ''
             with status:
                 clear_output(wait=True)
                 display(widgets.HTML(
                     f'<span style="color:green;font-size:13px">'
-                    f'Loaded: {n_w} wells, {n_c} conditions. '
+                    f'Loaded{src}: {n_w} wells, {n_c} conditions. '
                     f'G = {_ana.G:.4f} +/- {_ana.G_se:.4f}</span>'))
             with preview:
-                df = _ana.df_merged
-                type_colors = {'titration':'#4878d0','substrate':'#6acc65',
-                               'blank':'#d65f5f','fluorophore':'#ee854a'}
-                fig, ax = plt.subplots(figsize=(10, 3.5))
-                for _, row in df.iterrows():
-                    w = row['well']
-                    r_idx = ord(w[0]) - ord('A')
-                    c_idx = int(w[1:]) - 1
-                    col = type_colors.get(row['sample_type'], 'gray')
-                    ax.add_patch(plt.Rectangle((c_idx, -r_idx), 0.9, 0.9, color=col, alpha=0.7))
-                ax.set_xlim(-0.2, 24.2); ax.set_ylim(-16.5, 1.2)
-                ax.set_xticks(np.arange(24)+0.45)
-                ax.set_xticklabels(range(1,25), fontsize=7)
-                ax.set_yticks([-i for i in range(16)])
-                ax.set_yticklabels(list('ABCDEFGHIJKLMNOP'), fontsize=7)
-                ax.set_title('Layout — plate map'); ax.axis('off')
-                from matplotlib.patches import Patch
-                legend = [Patch(color=v, label=k) for k,v in type_colors.items()]
-                ax.legend(handles=legend, fontsize=8, loc='upper right')
-                display(_fig_to_widget(fig))
+                _draw_plate_map(_ana.df_merged)
         except Exception as e:
             with status:
                 clear_output(wait=True)
@@ -693,15 +723,55 @@ def show_load_panel():
 
     btn_load.on_click(on_load)
     display(widgets.VBox([
-        _label('Attach files and set parameters', bold=True),
+        _label('Attach files (or use the bundled example) and set parameters', bold=True),
         widgets.HBox([upload_layout, upload_data]),
+        widgets.HTML(default_note),
         widgets.HTML('<hr style="margin:6px 0">'),
         _label('Experiment parameters'),
         widgets.HBox([w_Dl, w_Aref]),
-        widgets.HBox([w_G, w_G_use, w_cycle]),
+        widgets.HBox([w_G, w_G_use]),
         widgets.HTML('<hr style="margin:6px 0">'),
         btn_load, status, preview,
     ]))
+
+
+def _draw_plate_map(df):
+    """Plate map with explicit cell borders and a large legend."""
+    type_colors = {'titration':'#4878d0','substrate':'#6acc65',
+                   'blank':'#d65f5f','fluorophore':'#ee854a'}
+    fig, ax = plt.subplots(figsize=(11, 4.2))
+    # light grid for every plate position
+    for r_idx in range(16):
+        for c_idx in range(24):
+            ax.add_patch(plt.Rectangle((c_idx, -r_idx), 1.0, 1.0,
+                                       facecolor='none', edgecolor='#dddddd',
+                                       linewidth=0.6))
+    # filled wells with dark borders
+    for _, row in df.iterrows():
+        w = row['well']
+        r_idx = ord(w[0]) - ord('A')
+        c_idx = int(w[1:]) - 1
+        col = type_colors.get(row['sample_type'], 'gray')
+        ax.add_patch(plt.Rectangle((c_idx, -r_idx), 1.0, 1.0,
+                                   facecolor=col, edgecolor='black',
+                                   linewidth=1.2, alpha=0.85))
+    ax.set_xlim(-0.3, 24.3); ax.set_ylim(-16.3, 1.3)
+    ax.set_xticks(np.arange(24)+0.5)
+    ax.set_xticklabels(range(1,25), fontsize=8)
+    ax.set_yticks([-i+0.5 for i in range(16)])
+    ax.set_yticklabels(list('ABCDEFGHIJKLMNOP'), fontsize=8)
+    ax.set_title('Layout — plate map', fontsize=14)
+    ax.set_aspect('equal')
+    ax.tick_params(length=0)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    from matplotlib.patches import Patch
+    legend = [Patch(facecolor=v, edgecolor='black', label=k)
+              for k, v in type_colors.items()]
+    ax.legend(handles=legend, fontsize=12, loc='center left',
+              bbox_to_anchor=(1.01, 0.5), frameon=True)
+    plt.tight_layout()
+    display(_fig_to_widget(fig))
 
 
 # ── Step 3: QC ─────────────────────────────────────────────────────
@@ -749,27 +819,31 @@ def show_qc_panel():
             if not fluo.empty:
                 A = _ana.A_ref
                 G_vals = fluo['parallel']*(1-A) / (fluo['perpendicular']*(1+2*A))
-                fig, ax = plt.subplots(figsize=(5, 3))
-                ax.scatter(range(len(G_vals)), G_vals, zorder=3, color='#4878d0')
+                fig, ax = plt.subplots(figsize=(6, 3.6))
+                ax.scatter(range(len(G_vals)), G_vals, zorder=3, color='#4878d0', s=60)
                 ax.axhline(_ana.G, color='red', ls='--', label=f'G mean = {_ana.G:.4f}')
                 ax.axhspan(_ana.G-_ana.G_se, _ana.G+_ana.G_se, alpha=0.15, color='red', label='+/-SE')
-                ax.set(xlabel='Fluorophore well #', ylabel='G per well',
-                       title='G-factor calibration')
-                ax.legend(fontsize=8)
+                ax.set_xlabel('Fluorophore well #', fontsize=13)
+                ax.set_ylabel('G per well', fontsize=13)
+                ax.set_title('G-factor calibration', fontsize=14)
+                ax.tick_params(labelsize=11)
+                ax.legend(fontsize=12)
                 display(_fig_to_widget(fig))
             # Titration overview (respects log/linear checkbox)
             cm = _condition_colors()
-            fig, ax = plt.subplots(figsize=(8, 3.5))
+            fig, ax = plt.subplots(figsize=(9, 4.5))
             for cond in sorted(_ana.df_saturation['condition'].unique()):
                 sat = _ana.df_saturation[_ana.df_saturation['condition'] == cond]
                 ax.errorbar(sat['concentration'], sat['r_mA'], yerr=sat['sem_mA'],
-                            fmt='o-', color=cm[cond], capsize=3,
-                            label=cond, markersize=5)
-            ax.set(xlabel='[Protein], nM', ylabel='Anisotropy, mA',
-                   title='Titration curves (raw)')
+                            fmt='o-', color=cm[cond], capsize=4,
+                            label=cond, markersize=7, lw=2)
+            ax.set_xlabel('[Protein], nM', fontsize=13)
+            ax.set_ylabel('Anisotropy, mA', fontsize=13)
+            ax.set_title('Titration curves (raw)', fontsize=14)
             if w_logx.value:
                 ax.set_xscale('log')
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=13)
+            ax.tick_params(labelsize=11)
             display(_fig_to_widget(fig))
 
     btn_qc.on_click(on_qc)
@@ -791,6 +865,7 @@ def show_fit_panel():
     model_sel  = mkd('Model:', list(_BUILTIN_MODELS.keys()), 'fp_quadratic')
     method_sel = mkd('Method:', ['leastsq','least_squares','nelder','powell'], 'leastsq', '200px')
     w_logx     = mkc('Log X axis', True)
+    w_fbound   = mkc('Y = fraction bound', False)
     w_Kd_init  = mkw('Kd init (nM):', 50.)
     w_Kd_min   = mkw('Kd min:', 0.)
     w_Kd_max   = mkw('Kd max:', 1e4)
@@ -836,32 +911,52 @@ def show_fit_panel():
         col   = _condition_colors().get(cond, 'steelblue')
         sat   = _ana.df_saturation[_ana.df_saturation['condition'] == cond]
         curve = _ana.get_fit_curve(cond)
-        lines = [f'Fit converged  |  redchi = {res.redchi:.5f}']
-        for pname, param in res.params.items():
-            if param.vary:
-                se = f'+/- {param.stderr:.4f}' if param.stderr else '(no SE)'
-                lines.append(f'  {pname:12s} = {param.value:.4f}  {se}')
-        display(widgets.Textarea(value='\n'.join(lines), rows=6,
+
+        # Native lmfit fit report (includes R-squared in lmfit >= 1.3)
+        display(widgets.HTML('<b style="font-size:13px">Fit report (lmfit):</b>'))
+        display(widgets.Textarea(value=res.fit_report(), rows=18,
                                   layout=widgets.Layout(width='98%')))
+
         Kd    = res.params['Kd'].value
         Kd_se = res.params['Kd'].stderr or 0.
-        fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-        axes[0].errorbar(sat['concentration'], sat['r_mA'], yerr=sat['sem_mA'],
-                         fmt='o', color=col, capsize=4, label='data', zorder=3)
-        axes[0].plot(curve['concentration'], curve['r_mA'], '-', color=col,
-                     label=f'fit  Kd = {Kd:.1f} +/- {Kd_se:.1f} nM')
-        axes[0].set(xlabel='[Protein], nM', ylabel='Anisotropy, mA',
-                    title=f'{cond} -- saturation')
+        use_fb = w_fbound.value
+
+        if use_fb:
+            y_data  = sat['fraction_bound']
+            y_err   = sat.get('fraction_bound_sem')
+            y_curve = curve['fraction_bound']
+            ylabel  = 'Fraction bound'
+        else:
+            y_data  = sat['r_mA']
+            y_err   = sat['sem_mA']
+            y_curve = curve['r_mA']
+            ylabel  = 'Anisotropy, mA'
+
+        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+        axes[0].errorbar(sat['concentration'], y_data,
+                         yerr=y_err if y_err is not None else None,
+                         fmt='o', color=col, capsize=4, markersize=7,
+                         label='data', zorder=3)
+        axes[0].plot(curve['concentration'], y_curve, '-', color=col, lw=2,
+                     label=f'fit  Kd = {Kd:.2f} +/- {Kd_se:.2f} nM')
+        axes[0].set_xlabel('[Protein], nM', fontsize=13)
+        axes[0].set_ylabel(ylabel, fontsize=13)
+        axes[0].set_title(f'{cond} — saturation', fontsize=14)
         if w_logx.value:
             axes[0].set_xscale('log')
-        axes[0].legend(fontsize=8)
+        axes[0].legend(fontsize=13)
+        axes[0].tick_params(labelsize=11)
+
         model_func = _BUILTIN_MODELS[model_sel.value]
         r_pred = model_func(np.asarray(sat['concentration'], dtype=np.float64),
                             **res.best_values)
         resid  = (np.asarray(sat['r'], dtype=np.float64) - r_pred) * 1000
         axes[1].bar(range(len(resid)), resid, color=col, alpha=0.7)
         axes[1].axhline(0, color='k', lw=0.8)
-        axes[1].set(xlabel='Point #', ylabel='Residual (mA)', title='Residuals')
+        axes[1].set_xlabel('Concentration point #', fontsize=13)
+        axes[1].set_ylabel('Residual (mA)', fontsize=13)
+        axes[1].set_title('Residuals', fontsize=14)
+        axes[1].tick_params(labelsize=11)
         plt.tight_layout()
         display(_fig_to_widget(fig))
 
@@ -893,7 +988,7 @@ def show_fit_panel():
     display(widgets.VBox([
         _label('Fitting parameters', bold=True),
         widgets.HBox([cond_sel, model_sel, method_sel]),
-        widgets.HBox([w_logx]),
+        widgets.HBox([w_logx, w_fbound]),
         widgets.HTML('<hr style="margin:5px 0">'),
         _label('Kd'),
         widgets.HBox([w_Kd_init, w_Kd_min, w_Kd_max]),
@@ -912,6 +1007,8 @@ def show_summary_panel():
     btn_sum     = _styled_btn('Refresh', 'info', 'refresh')
     w_logx      = widgets.Checkbox(value=True, description='Log X axis',
                                    layout=widgets.Layout(width='140px'))
+    w_fbound    = widgets.Checkbox(value=False, description='Y = fraction bound',
+                                   layout=widgets.Layout(width='180px'))
     scat_sel    = widgets.Dropdown(options=[], description='Scatchard:',
                                    style={'description_width':'90px'},
                                    layout=widgets.Layout(width='240px'))
@@ -939,22 +1036,31 @@ def show_summary_panel():
                         .reset_index(drop=True))
 
             cm = _condition_colors()
+            use_fb = w_fbound.value
+            ylabel = 'Fraction bound' if use_fb else 'Anisotropy, mA'
             # Saturation curves (all fitted conditions)
-            fig, ax = plt.subplots(figsize=(7, 5))
+            fig, ax = plt.subplots(figsize=(8, 5.5))
             for cond in fitted:
                 col   = cm.get(cond, 'gray')
                 sat   = _ana.df_saturation[_ana.df_saturation['condition'] == cond]
                 curve = _ana.get_fit_curve(cond)
                 Kd    = _ana.get_fit_params(cond)['Kd']
-                ax.errorbar(sat['concentration'], sat['r_mA'], yerr=sat['sem_mA'],
-                            fmt='o', color=col, capsize=3, markersize=5)
-                ax.plot(curve['concentration'], curve['r_mA'], '-',
-                        color=col, label=f'{cond}  Kd={Kd:.1f} nM')
-            ax.set(xlabel='[Protein], nM', ylabel='Anisotropy, mA',
-                   title='Saturation -- all fitted conditions')
+                if use_fb:
+                    yd, ye, yc = sat['fraction_bound'], sat.get('fraction_bound_sem'), curve['fraction_bound']
+                else:
+                    yd, ye, yc = sat['r_mA'], sat['sem_mA'], curve['r_mA']
+                ax.errorbar(sat['concentration'], yd,
+                            yerr=ye if ye is not None else None,
+                            fmt='o', color=col, capsize=3, markersize=7)
+                ax.plot(curve['concentration'], yc, '-', color=col, lw=2,
+                        label=f'{cond}  Kd={Kd:.2f} nM')
+            ax.set_xlabel('[Protein], nM', fontsize=13)
+            ax.set_ylabel(ylabel, fontsize=13)
+            ax.set_title('Saturation — all fitted conditions', fontsize=14)
             if w_logx.value:
                 ax.set_xscale('log')
-            ax.legend(fontsize=8)
+            ax.legend(fontsize=13)
+            ax.tick_params(labelsize=11)
             plt.tight_layout()
             display(_fig_to_widget(fig))
 
@@ -963,13 +1069,15 @@ def show_summary_panel():
             try:
                 sc = _ana.get_scatchard(cond)
                 col = cm.get(cond, 'steelblue')
-                fig, ax = plt.subplots(figsize=(5, 4))
-                ax.plot(sc['B'], sc['B_over_F'], 'o-', color=col)
-                ax.set(xlabel='Bound complex B, nM', ylabel='B / F',
-                       title=f'Post-fit Scatchard — {cond}')
+                fig, ax = plt.subplots(figsize=(6, 5))
+                ax.plot(sc['B'], sc['B_over_F'], 'o-', color=col, markersize=8, lw=2)
+                ax.set_xlabel('Bound complex B, nM', fontsize=13)
+                ax.set_ylabel('B / F', fontsize=13)
+                ax.set_title(f'Post-fit Scatchard — {cond}', fontsize=14)
+                ax.tick_params(labelsize=11)
                 ax.text(0.02, 0.02,
                         'Diagnostic only (uses fitted A_bound/A_free; not an independent Kd)',
-                        transform=ax.transAxes, fontsize=7, color='gray')
+                        transform=ax.transAxes, fontsize=9, color='gray')
                 plt.tight_layout()
                 display(_fig_to_widget(fig))
             except FitError as e:
@@ -977,7 +1085,9 @@ def show_summary_panel():
 
     btn_sum.on_click(on_refresh)
     scat_sel.observe(lambda ch: on_refresh(None) if ch['name'] == 'value' else None, names='value')
-    display(widgets.VBox([widgets.HBox([btn_sum, w_logx, scat_sel]), out_sum]))
+    w_fbound.observe(lambda ch: on_refresh(None) if ch['name'] == 'value' else None, names='value')
+    w_logx.observe(lambda ch: on_refresh(None) if ch['name'] == 'value' else None, names='value')
+    display(widgets.VBox([widgets.HBox([btn_sum, w_logx, w_fbound, scat_sel]), out_sum]))
 
 
 # ── Step 6: Export ─────────────────────────────────────────────────
@@ -1028,32 +1138,58 @@ def show_export_panel():
                         txt += str(r) + '\n\n'
                     zf.writestr('qc_report.txt', txt)
                 if chk_fig_sat.value:
-                    fig, ax = plt.subplots(figsize=(8, 5))
+                    fig, ax = plt.subplots(figsize=(9, 6))
                     all_conds = fitted if fitted else sorted(_ana.df_saturation['condition'].unique())
                     for cond in all_conds:
                         col = cm.get(cond,'gray')
                         sat = _ana.df_saturation[_ana.df_saturation['condition']==cond]
                         ax.errorbar(sat['concentration'], sat['r_mA'], yerr=sat['sem_mA'],
-                                    fmt='o', color=col, capsize=3, markersize=5, label=f'{cond} data')
+                                    fmt='o', color=col, capsize=4, markersize=7, label=f'{cond} data')
                         if cond in _ana._fit_results:
                             curve = _ana.get_fit_curve(cond)
                             Kd    = _ana.get_fit_params(cond)['Kd']
-                            ax.plot(curve['concentration'], curve['r_mA'], '-',
-                                    color=col, label=f'{cond} Kd={Kd:.1f} nM')
-                    ax.set(xlabel='[Protein], nM', ylabel='Anisotropy, mA', title='Saturation binding')
+                            ax.plot(curve['concentration'], curve['r_mA'], '-', lw=2,
+                                    color=col, label=f'{cond} Kd={Kd:.2f} nM')
+                    ax.set_xlabel('[Protein], nM', fontsize=13)
+                    ax.set_ylabel('Anisotropy, mA', fontsize=13)
+                    ax.set_title('Saturation binding', fontsize=14)
                     if w_logx.value: ax.set_xscale('log')
-                    ax.legend(fontsize=8); plt.tight_layout()
+                    ax.legend(fontsize=13); ax.tick_params(labelsize=11)
+                    plt.tight_layout()
                     zf.writestr('saturation_plot.png', _save_bytes(fig))
+                    # Also export a fraction-bound version if fits exist
+                    if fitted:
+                        fig, ax = plt.subplots(figsize=(9, 6))
+                        for cond in fitted:
+                            col = cm.get(cond,'gray')
+                            sat = _ana.df_saturation[_ana.df_saturation['condition']==cond]
+                            curve = _ana.get_fit_curve(cond)
+                            Kd = _ana.get_fit_params(cond)['Kd']
+                            ax.errorbar(sat['concentration'], sat['fraction_bound'],
+                                        yerr=sat.get('fraction_bound_sem'),
+                                        fmt='o', color=col, capsize=4, markersize=7, label=f'{cond} data')
+                            ax.plot(curve['concentration'], curve['fraction_bound'], '-', lw=2,
+                                    color=col, label=f'{cond} Kd={Kd:.2f} nM')
+                        ax.set_xlabel('[Protein], nM', fontsize=13)
+                        ax.set_ylabel('Fraction bound', fontsize=13)
+                        ax.set_title('Saturation binding (fraction bound)', fontsize=14)
+                        if w_logx.value: ax.set_xscale('log')
+                        ax.legend(fontsize=13); ax.tick_params(labelsize=11)
+                        plt.tight_layout()
+                        zf.writestr('saturation_fraction_bound.png', _save_bytes(fig))
                 if chk_fig_scat.value and fitted:
                     for cond in fitted:
                         try:
                             sc = _ana.get_scatchard(cond)
                         except FitError:
                             continue
-                        fig, ax = plt.subplots(figsize=(5, 4))
-                        ax.plot(sc['B'], sc['B_over_F'], 'o-', color=cm.get(cond,'gray'))
-                        ax.set(xlabel='Bound complex B, nM', ylabel='B / F',
-                               title=f'Post-fit Scatchard — {cond}')
+                        fig, ax = plt.subplots(figsize=(6, 5))
+                        ax.plot(sc['B'], sc['B_over_F'], 'o-', color=cm.get(cond,'gray'),
+                                markersize=8, lw=2)
+                        ax.set_xlabel('Bound complex B, nM', fontsize=13)
+                        ax.set_ylabel('B / F', fontsize=13)
+                        ax.set_title(f'Post-fit Scatchard — {cond}', fontsize=14)
+                        ax.tick_params(labelsize=11)
                         plt.tight_layout()
                         zf.writestr(f'scatchard_{cond}.png', _save_bytes(fig))
                 if chk_fig_qc.value:
@@ -1061,12 +1197,15 @@ def show_export_panel():
                     if not fluo.empty:
                         A = _ana.A_ref
                         G_vals = fluo['parallel']*(1-A)/(fluo['perpendicular']*(1+2*A))
-                        fig, ax = plt.subplots(figsize=(5, 3.5))
-                        ax.scatter(range(len(G_vals)), G_vals, color='#4878d0')
+                        fig, ax = plt.subplots(figsize=(6, 4))
+                        ax.scatter(range(len(G_vals)), G_vals, color='#4878d0', s=60)
                         ax.axhline(_ana.G, color='red', ls='--', label=f'G = {_ana.G:.4f}')
                         ax.axhspan(_ana.G-_ana.G_se, _ana.G+_ana.G_se, alpha=0.15, color='red')
-                        ax.set(xlabel='Well #', ylabel='G', title='G-factor calibration')
-                        ax.legend(fontsize=8); plt.tight_layout()
+                        ax.set_xlabel('Well #', fontsize=13)
+                        ax.set_ylabel('G', fontsize=13)
+                        ax.set_title('G-factor calibration', fontsize=14)
+                        ax.tick_params(labelsize=11)
+                        ax.legend(fontsize=12); plt.tight_layout()
                         zf.writestr('g_calibration.png', _save_bytes(fig))
             zip_buf.seek(0)
             zb    = zip_buf.read()
