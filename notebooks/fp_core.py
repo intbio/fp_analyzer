@@ -527,7 +527,7 @@ class FPAnalyzer:
         A_bound_fit = bv.get('A_bound', A_bound_def)
         span = (A_bound_fit - A_free_fit) if abs(A_bound_fit - A_free_fit) > 1e-12 else np.nan
 
-        x_fine = np.linspace(max(x.min(), 1e-9), x.max(), 400)
+        x_fine = np.linspace(0.0, x.max(), 400)
         y_fine = model_func(x_fine, **result.best_values)
         fb_fine = (y_fine - A_free_fit) / span
         self._fit_curves[condition] = pd.DataFrame(
@@ -777,7 +777,7 @@ def _draw_plate_map(df):
 # ── Step 3: QC ─────────────────────────────────────────────────────
 def show_qc_panel():
     btn_qc  = _styled_btn('Show QC', 'info', 'search')
-    w_logx  = widgets.Checkbox(value=True, description='Log X axis',
+    w_logx  = widgets.Checkbox(value=False, description='Log X axis',
                                layout=widgets.Layout(width='140px'))
     out_qc  = widgets.Output()
 
@@ -814,24 +814,9 @@ def show_qc_panel():
                 disp['pos_concentration_nM'] = disp['pos_concentration_nM'].round(1)
                 disp = disp.rename(columns={'pos_concentration_nM':'[P]_max nM'})
                 display(disp)
-            # G calibration
-            fluo = _ana.df_merged[_ana.df_merged['sample_type'] == 'fluorophore']
-            if not fluo.empty:
-                A = _ana.A_ref
-                G_vals = fluo['parallel']*(1-A) / (fluo['perpendicular']*(1+2*A))
-                fig, ax = plt.subplots(figsize=(6, 3.6))
-                ax.scatter(range(len(G_vals)), G_vals, zorder=3, color='#4878d0', s=60)
-                ax.axhline(_ana.G, color='red', ls='--', label=f'G mean = {_ana.G:.4f}')
-                ax.axhspan(_ana.G-_ana.G_se, _ana.G+_ana.G_se, alpha=0.15, color='red', label='+/-SE')
-                ax.set_xlabel('Fluorophore well #', fontsize=13)
-                ax.set_ylabel('G per well', fontsize=13)
-                ax.set_title('G-factor calibration', fontsize=14)
-                ax.tick_params(labelsize=11)
-                ax.legend(fontsize=12)
-                display(_fig_to_widget(fig))
             # Titration overview (respects log/linear checkbox)
             cm = _condition_colors()
-            fig, ax = plt.subplots(figsize=(9, 4.5))
+            fig, ax = plt.subplots(figsize=(6.4, 4.8))
             for cond in sorted(_ana.df_saturation['condition'].unique()):
                 sat = _ana.df_saturation[_ana.df_saturation['condition'] == cond]
                 ax.errorbar(sat['concentration'], sat['r_mA'], yerr=sat['sem_mA'],
@@ -864,7 +849,7 @@ def show_fit_panel():
     cond_sel   = mkd('Condition:', [], None, '240px')
     model_sel  = mkd('Model:', list(_BUILTIN_MODELS.keys()), 'fp_quadratic')
     method_sel = mkd('Method:', ['leastsq','least_squares','nelder','powell'], 'leastsq', '200px')
-    w_logx     = mkc('Log X axis', True)
+    w_logx     = mkc('Log X axis', False)
     w_fbound   = mkc('Y = fraction bound', False)
     w_Kd_init  = mkw('Kd init (nM):', 50.)
     w_Kd_min   = mkw('Kd min:', 0.)
@@ -932,7 +917,7 @@ def show_fit_panel():
             y_curve = curve['r_mA']
             ylabel  = 'Anisotropy, mA'
 
-        fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+        fig, axes = plt.subplots(1, 2, figsize=(12.8, 4.8))
         axes[0].errorbar(sat['concentration'], y_data,
                          yerr=y_err if y_err is not None else None,
                          fmt='o', color=col, capsize=4, markersize=7,
@@ -1005,7 +990,7 @@ def show_fit_panel():
 # ── Step 5: Summary ────────────────────────────────────────────────
 def show_summary_panel():
     btn_sum     = _styled_btn('Refresh', 'info', 'refresh')
-    w_logx      = widgets.Checkbox(value=True, description='Log X axis',
+    w_logx      = widgets.Checkbox(value=False, description='Log X axis',
                                    layout=widgets.Layout(width='140px'))
     w_fbound    = widgets.Checkbox(value=False, description='Y = fraction bound',
                                    layout=widgets.Layout(width='180px'))
@@ -1038,13 +1023,18 @@ def show_summary_panel():
             cm = _condition_colors()
             use_fb = w_fbound.value
             ylabel = 'Fraction bound' if use_fb else 'Anisotropy, mA'
-            # Saturation curves (all fitted conditions)
-            fig, ax = plt.subplots(figsize=(8, 5.5))
-            for cond in fitted:
-                col   = cm.get(cond, 'gray')
-                sat   = _ana.df_saturation[_ana.df_saturation['condition'] == cond]
-                curve = _ana.get_fit_curve(cond)
-                Kd    = _ana.get_fit_params(cond)['Kd']
+
+            # Both plots on one row: saturation (left) + Scatchard (right)
+            cond = scat_sel.value
+            fig, axes = plt.subplots(1, 2, figsize=(12.8, 4.8))
+
+            # Left: saturation curves (all fitted conditions)
+            ax = axes[0]
+            for c in fitted:
+                col   = cm.get(c, 'gray')
+                sat   = _ana.df_saturation[_ana.df_saturation['condition'] == c]
+                curve = _ana.get_fit_curve(c)
+                Kd    = _ana.get_fit_params(c)['Kd']
                 if use_fb:
                     yd, ye, yc = sat['fraction_bound'], sat.get('fraction_bound_sem'), curve['fraction_bound']
                 else:
@@ -1053,7 +1043,7 @@ def show_summary_panel():
                             yerr=ye if ye is not None else None,
                             fmt='o', color=col, capsize=3, markersize=7)
                 ax.plot(curve['concentration'], yc, '-', color=col, lw=2,
-                        label=f'{cond}  Kd={Kd:.2f} nM')
+                        label=f'{c}  Kd={Kd:.2f} nM')
             ax.set_xlabel('[Protein], nM', fontsize=13)
             ax.set_ylabel(ylabel, fontsize=13)
             ax.set_title('Saturation — all fitted conditions', fontsize=14)
@@ -1061,27 +1051,27 @@ def show_summary_panel():
                 ax.set_xscale('log')
             ax.legend(fontsize=13)
             ax.tick_params(labelsize=11)
-            plt.tight_layout()
-            display(_fig_to_widget(fig))
 
-            # Post-fit Scatchard for the selected condition
-            cond = scat_sel.value
+            # Right: post-fit Scatchard for the selected condition
+            ax = axes[1]
             try:
                 sc = _ana.get_scatchard(cond)
                 col = cm.get(cond, 'steelblue')
-                fig, ax = plt.subplots(figsize=(6, 5))
                 ax.plot(sc['B'], sc['B_over_F'], 'o-', color=col, markersize=8, lw=2)
                 ax.set_xlabel('Bound complex B, nM', fontsize=13)
                 ax.set_ylabel('B / F', fontsize=13)
                 ax.set_title(f'Post-fit Scatchard — {cond}', fontsize=14)
                 ax.tick_params(labelsize=11)
                 ax.text(0.02, 0.02,
-                        'Diagnostic only (uses fitted A_bound/A_free; not an independent Kd)',
-                        transform=ax.transAxes, fontsize=9, color='gray')
-                plt.tight_layout()
-                display(_fig_to_widget(fig))
+                        'Diagnostic only (fitted A_bound/A_free; not an independent Kd)',
+                        transform=ax.transAxes, fontsize=8, color='gray')
             except FitError as e:
-                display(_label(f'Scatchard unavailable: {e}'))
+                ax.text(0.5, 0.5, f'Scatchard unavailable:\n{e}',
+                        transform=ax.transAxes, ha='center', va='center', fontsize=10)
+                ax.axis('off')
+
+            plt.tight_layout()
+            display(_fig_to_widget(fig))
 
     btn_sum.on_click(on_refresh)
     scat_sel.observe(lambda ch: on_refresh(None) if ch['name'] == 'value' else None, names='value')
@@ -1100,7 +1090,7 @@ def show_export_panel():
     chk_fig_sat  = widgets.Checkbox(value=True, description='Saturation plot (PNG)')
     chk_fig_scat = widgets.Checkbox(value=True, description='Scatchard plots (PNG)')
     chk_fig_qc   = widgets.Checkbox(value=True, description='G calibration (PNG)')
-    w_logx       = widgets.Checkbox(value=True, description='Log X on saturation')
+    w_logx       = widgets.Checkbox(value=False, description='Log X on saturation')
     btn_exp = _styled_btn('Export ZIP', 'warning', 'download')
     out_exp = widgets.Output()
 
@@ -1138,7 +1128,7 @@ def show_export_panel():
                         txt += str(r) + '\n\n'
                     zf.writestr('qc_report.txt', txt)
                 if chk_fig_sat.value:
-                    fig, ax = plt.subplots(figsize=(9, 6))
+                    fig, ax = plt.subplots(figsize=(6.4, 4.8))
                     all_conds = fitted if fitted else sorted(_ana.df_saturation['condition'].unique())
                     for cond in all_conds:
                         col = cm.get(cond,'gray')
@@ -1159,7 +1149,7 @@ def show_export_panel():
                     zf.writestr('saturation_plot.png', _save_bytes(fig))
                     # Also export a fraction-bound version if fits exist
                     if fitted:
-                        fig, ax = plt.subplots(figsize=(9, 6))
+                        fig, ax = plt.subplots(figsize=(6.4, 4.8))
                         for cond in fitted:
                             col = cm.get(cond,'gray')
                             sat = _ana.df_saturation[_ana.df_saturation['condition']==cond]
@@ -1183,7 +1173,7 @@ def show_export_panel():
                             sc = _ana.get_scatchard(cond)
                         except FitError:
                             continue
-                        fig, ax = plt.subplots(figsize=(6, 5))
+                        fig, ax = plt.subplots(figsize=(6.4, 4.8))
                         ax.plot(sc['B'], sc['B_over_F'], 'o-', color=cm.get(cond,'gray'),
                                 markersize=8, lw=2)
                         ax.set_xlabel('Bound complex B, nM', fontsize=13)
@@ -1197,7 +1187,7 @@ def show_export_panel():
                     if not fluo.empty:
                         A = _ana.A_ref
                         G_vals = fluo['parallel']*(1-A)/(fluo['perpendicular']*(1+2*A))
-                        fig, ax = plt.subplots(figsize=(6, 4))
+                        fig, ax = plt.subplots(figsize=(6.4, 4.8))
                         ax.scatter(range(len(G_vals)), G_vals, color='#4878d0', s=60)
                         ax.axhline(_ana.G, color='red', ls='--', label=f'G = {_ana.G:.4f}')
                         ax.axhspan(_ana.G-_ana.G_se, _ana.G+_ana.G_se, alpha=0.15, color='red')
