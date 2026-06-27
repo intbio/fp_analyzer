@@ -554,7 +554,7 @@ class FPAnalyzer:
         self.df_saturation.loc[mask, 'fraction_bound'] = \
             (self.df_saturation.loc[mask, 'r'] - A_free_fit) / span
         self.df_saturation.loc[mask, 'fraction_bound_sem'] = \
-            self.df_saturation.loc[mask, 'sem'] / span
+            self.df_saturation.loc[mask, 'sem'] / abs(span)
 
     # ── Post-fit Scatchard (FIXED: uses fitted A_bound and B/F) ────
     def get_scatchard(self, condition):
