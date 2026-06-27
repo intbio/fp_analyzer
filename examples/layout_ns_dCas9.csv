@@ -1,0 +1,166 @@
+well,condition,sample_type,concentration,replicate
+A1,DNA high GC,titration,500,1
+A2,DNA high GC,titration,250,1
+A3,DNA high GC,titration,125,1
+A4,DNA high GC,titration,62.5,1
+A5,DNA high GC,titration,31.25,1
+A6,DNA high GC,titration,15.625,1
+A7,DNA high GC,titration,7.8125,1
+A8,DNA high GC,titration,3.90625,1
+A9,DNA high GC,substrate,,1
+A10,DNA high GC,fluorophore,,1
+A11,DNA high GC,blank,,1
+B1,DNA high GC,titration,500,2
+B2,DNA high GC,titration,250,2
+B3,DNA high GC,titration,125,2
+B4,DNA high GC,titration,62.5,2
+B5,DNA high GC,titration,31.25,2
+B6,DNA high GC,titration,15.625,2
+B7,DNA high GC,titration,7.8125,2
+B8,DNA high GC,titration,3.90625,2
+B9,DNA high GC,substrate,,2
+B10,DNA high GC,fluorophore,,2
+B11,DNA high GC,blank,,2
+C1,DNA high GC,titration,500,3
+C2,DNA high GC,titration,250,3
+C3,DNA high GC,titration,125,3
+C4,DNA high GC,titration,62.5,3
+C5,DNA high GC,titration,31.25,3
+C6,DNA high GC,titration,15.625,3
+C7,DNA high GC,titration,7.8125,3
+C8,DNA high GC,titration,3.90625,3
+C9,DNA high GC,substrate,,3
+C10,DNA high GC,fluorophore,,3
+C11,DNA high GC,blank,,3
+D1,0 PAM without target,titration,500,1
+D2,0 PAM without target,titration,250,1
+D3,0 PAM without target,titration,125,1
+D4,0 PAM without target,titration,62.5,1
+D5,0 PAM without target,titration,31.25,1
+D6,0 PAM without target,titration,15.625,1
+D7,0 PAM without target,titration,7.8125,1
+D8,0 PAM without target,titration,3.90625,1
+D9,0 PAM without target,substrate,,1
+D10,0 PAM without target,fluorophore,,1
+D11,0 PAM without target,blank,,1
+E1,0 PAM without target,titration,500,2
+E2,0 PAM without target,titration,250,2
+E3,0 PAM without target,titration,125,2
+E4,0 PAM without target,titration,62.5,2
+E5,0 PAM without target,titration,31.25,2
+E6,0 PAM without target,titration,15.625,2
+E7,0 PAM without target,titration,7.8125,2
+E8,0 PAM without target,titration,3.90625,2
+E9,0 PAM without target,substrate,,2
+E10,0 PAM without target,fluorophore,,2
+E11,0 PAM without target,blank,,2
+F1,0 PAM without target,titration,500,3
+F2,0 PAM without target,titration,250,3
+F3,0 PAM without target,titration,125,3
+F4,0 PAM without target,titration,62.5,3
+F5,0 PAM without target,titration,31.25,3
+F6,0 PAM without target,titration,15.625,3
+F7,0 PAM without target,titration,7.8125,3
+F8,0 PAM without target,titration,3.90625,3
+F9,0 PAM without target,substrate,,3
+F10,0 PAM without target,fluorophore,,3
+F11,0 PAM without target,blank,,3
+G1,15 PAM,titration,500,1
+G2,15 PAM,titration,250,1
+G3,15 PAM,titration,125,1
+G4,15 PAM,titration,62.5,1
+G5,15 PAM,titration,31.25,1
+G6,15 PAM,titration,15.625,1
+G7,15 PAM,titration,7.8125,1
+G8,15 PAM,titration,3.90625,1
+G9,15 PAM,substrate,,1
+G10,15 PAM,fluorophore,,1
+G11,15 PAM,blank,,1
+H1,15 PAM,titration,500,2
+H2,15 PAM,titration,250,2
+H3,15 PAM,titration,125,2
+H4,15 PAM,titration,62.5,2
+H5,15 PAM,titration,31.25,2
+H6,15 PAM,titration,15.625,2
+H7,15 PAM,titration,7.8125,2
+H8,15 PAM,titration,3.90625,2
+H9,15 PAM,substrate,,2
+H10,15 PAM,fluorophore,,2
+H11,15 PAM,blank,,2
+I1,15 PAM,titration,500,3
+I2,15 PAM,titration,250,3
+I3,15 PAM,titration,125,3
+I4,15 PAM,titration,62.5,3
+I5,15 PAM,titration,31.25,3
+I6,15 PAM,titration,15.625,3
+I7,15 PAM,titration,7.8125,3
+I8,15 PAM,titration,3.90625,3
+I9,15 PAM,substrate,,3
+I10,15 PAM,fluorophore,,3
+I11,15 PAM,blank,,3
+J1,0 PAM with target,titration,500,1
+J2,0 PAM with target,titration,250,1
+J3,0 PAM with target,titration,125,1
+J4,0 PAM with target,titration,62.5,1
+J5,0 PAM with target,titration,31.25,1
+J6,0 PAM with target,titration,15.625,1
+J7,0 PAM with target,titration,7.8125,1
+J8,0 PAM with target,titration,3.90625,1
+J9,0 PAM with target,substrate,,1
+J10,0 PAM with target,fluorophore,,1
+J11,0 PAM with target,blank,,1
+K1,0 PAM with target,titration,500,2
+K2,0 PAM with target,titration,250,2
+K3,0 PAM with target,titration,125,2
+K4,0 PAM with target,titration,62.5,2
+K5,0 PAM with target,titration,31.25,2
+K6,0 PAM with target,titration,15.625,2
+K7,0 PAM with target,titration,7.8125,2
+K8,0 PAM with target,titration,3.90625,2
+K9,0 PAM with target,substrate,,2
+K10,0 PAM with target,fluorophore,,2
+K11,0 PAM with target,blank,,2
+L1,0 PAM with target,titration,500,3
+L2,0 PAM with target,titration,250,3
+L3,0 PAM with target,titration,125,3
+L4,0 PAM with target,titration,62.5,3
+L5,0 PAM with target,titration,31.25,3
+L6,0 PAM with target,titration,15.625,3
+L7,0 PAM with target,titration,7.8125,3
+L8,0 PAM with target,titration,3.90625,3
+L9,0 PAM with target,substrate,,3
+L10,0 PAM with target,fluorophore,,3
+L11,0 PAM with target,blank,,3
+M1,Buffer,titration,500,1
+M2,Buffer,titration,250,1
+M3,Buffer,titration,125,1
+M4,Buffer,titration,62.5,1
+M5,Buffer,titration,31.25,1
+M6,Buffer,titration,15.625,1
+M7,Buffer,titration,7.8125,1
+M8,Buffer,titration,3.90625,1
+M9,Buffer,substrate,,1
+M10,Buffer,fluorophore,,1
+M11,Buffer,blank,,1
+N1,Buffer,titration,500,2
+N2,Buffer,titration,250,2
+N3,Buffer,titration,125,2
+N4,Buffer,titration,62.5,2
+N5,Buffer,titration,31.25,2
+N6,Buffer,titration,15.625,2
+N7,Buffer,titration,7.8125,2
+N8,Buffer,titration,3.90625,2
+N9,Buffer,substrate,,2
+N10,Buffer,fluorophore,,2
+N11,Buffer,blank,,2
+O1,Buffer,titration,500,3
+O2,Buffer,titration,250,3
+O3,Buffer,titration,125,3
+O4,Buffer,titration,62.5,3
+O5,Buffer,titration,31.25,3
+O6,Buffer,titration,15.625,3
+O7,Buffer,titration,7.8125,3
+O8,Buffer,titration,3.90625,3
+O9,Buffer,substrate,,3
+O10,Buffer,fluorophore,,3
+O11,Buffer,blank,,3

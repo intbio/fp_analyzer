@@ -93,8 +93,7 @@ extracting bound fractions from a two-state mixture.
 **G-factor.** The pipeline derives *G* from dedicated calibration wells
 containing the free fluorophore at the same concentration as the
 labelled ligand. Given a user-supplied limiting anisotropy
-*A*<sub>ref</sub> for the free probe (default 0.035 for fluorescein in
-aqueous buffer), each calibration well contributes one *G* value:
+*A*<sub>ref</sub> for the free probe (default 0.035), each calibration well contributes one *G* value:
 
 ```
 G = I∥·(1 − A_ref) / [I⊥·(1 + 2·A_ref)]
@@ -238,8 +237,7 @@ A2,9876.2,9543.1
 
 **BMG Labtech native export** — the tool autodetects exports that contain
 `Raw Data (parallel)` and `Raw Data (perpendicular)` plate blocks, and
-parses all cycles. Use the `cycle` parameter (`'last'`, `'mean'`, or an
-integer cycle number) to select which cycle to analyze.
+parses all cycles.
 
 ---
 
@@ -266,10 +264,8 @@ Inspect the per-condition QC report:
 - *A*<sub>free</sub> with SE (per condition);
 - mean blank intensities;
 - number of titration points and replicates;
+- *Z*′-factor (per condition);
 - warnings (e.g. "*Q* deviates from 1 by > 0.3").
-
-Also displayed: a *G* calibration scatter plot. Outlier calibration
-wells become visible here.
 
 ### 4.3 Tab "Fit"
 

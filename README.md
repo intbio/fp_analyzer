@@ -12,8 +12,7 @@ publication-ready tables and figures.
 
 **Option A — try it online (no install).** Click the Binder badge above. The
 first launch takes 1–3 min while the environment is built (subsequent
-launches are cached and start in seconds). The example data files are
-already in the `examples/` folder of the Binder session.
+launches are cached and start in seconds). The example data files are bundled with the notebook and load automatically, so you can click straight through. Additional example datasets are also available in the examples/ folder of the Binder session.
 
 **Option B — run locally.**
 
@@ -72,7 +71,10 @@ fp-analyzer/
 │   ├── example_layout.csv          # synthetic 384-well layout
 │   ├── example_data.csv            # raw intensities, custom CSV format
 │   ├── example_data_bmg.csv        # same data in BMG Labtech export format
-│   └── _generate.py                # script that built the synthetic data
+│   ├── layout_dCas9.csv			# 384-well plate layout, dCas9 specific DNA binding
+│   ├── data_dCas9.csv				# raw BMG Labtech export, dCas9 specific DNA binding
+│   ├── layout_ns_dCas9.csv			# 384-well plate layout, dCas9 non-specific DNA binding
+│   └── data_ns_dCas9.csv			# raw BMG Labtech export, dCas9 non-specific DNA binding
 └── docs/
     └── methods.docx                # ready-to-paste Methods section for a paper
 ```
@@ -92,8 +94,7 @@ In short:
   `Raw Data (parallel)` / `Raw Data (perpendicular)` block headers).
 
 Try the synthetic example in `examples/` first to see the expected
-structure (two conditions, K<sub>D</sub> = 25 and 250 nM, full QC controls
-on a 384-well plate).
+structure.
 
 ## Theory
 
