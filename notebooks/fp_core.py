@@ -291,11 +291,25 @@ class FPAnalyzer:
     # ── Merge ──────────────────────────────────────────────────────
     def _merge(self, layout, data):
         lw, dw = set(layout['well']), set(data['well'])
-        issues = []
-        if dw - lw: issues.append(f"In data not layout: {sorted(dw-lw)}")
-        if lw - dw: issues.append(f"In layout not data: {sorted(lw-dw)}")
-        if issues: raise MergeError('Well mismatch:\n  ' + '\n  '.join(issues))
-        return layout.merge(data, on='well', how='inner')
+        extra_in_data = dw - lw
+        if extra_in_data:
+            warnings.warn(
+                f"{len(extra_in_data)} well(s) present in data but not in layout "
+                f"were ignored: {sorted(extra_in_data)}", UserWarning, stacklevel=2)
+
+        missing_in_data = lw - dw
+        if missing_in_data:
+            warnings.warn(
+                f"{len(missing_in_data)} well(s) described in layout have no data "
+                f"and were skipped: {sorted(missing_in_data)}", UserWarning, stacklevel=2)
+
+        merged = layout.merge(data, on='well', how='inner')
+        if merged.empty:
+            raise MergeError(
+                "No wells are shared between layout and data. Check that the two "
+                "files belong to the same experiment (well names must match, "
+                "e.g. 'G1', 'H2').")
+        return merged
 
     # ── G-factor ───────────────────────────────────────────────────
     def _compute_G(self):
